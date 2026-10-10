@@ -6310,11 +6310,13 @@ metadata key/value pairs, such as `type: :routing` with the default
 The Hash format compares Symbol metadata values with String config
 values, so `type: :routing` matches but `type: 'routing'` does not.
 
-Use the Array format to ignore several values for the same key, or to
-ignore a key regardless of its value. For example, `[prepare,
-{type=>model}, {type=>routing}]` ignores groups with `:prepare`,
-`prepare: false`, `prepare: nil`, `type: :model` or `type: :routing`.
-Any matching entry or key/value pair is enough to ignore a group.
+Use the Array format to ignore several values for the same key, or
+boolean metadata tags. For example, `[prepare, {type=>model},
+{type=>routing}]` ignores groups with `:prepare`, `prepare: true`,
+`type: :model` or `type: :routing`. Any matching entry is enough.
+Each Hash entry must contain at most one key/value pair. Split
+multiple pairs into separate entries; they are alternatives, not
+combinations of metadata conditions.
 
 Configure this Array in YAML with separate entries:
 
@@ -6329,9 +6331,9 @@ Separate Hash entries allow several values for the same key without
 duplicate YAML keys. Each `-` starts a new Array entry; the two `type`
 keys belong to different Hashes, so neither replaces the other.
 
-Array entries match both String and Symbol metadata keys by spelling.
-For example, `prepare` also matches `"prepare" => false`. When both
-key forms are present, their values remain separate alternatives.
+Array entries match only Symbol metadata keys. A scalar entry such
+as `prepare` matches a bare `:prepare` or literal `prepare: true`,
+but not `prepare: false`, `prepare: nil` or `"prepare" => true`.
 
 In the Array format, a configured value of `model` matches both
 `type: :model` and `type: 'model'`. String and Symbol values compare by
@@ -6341,8 +6343,9 @@ complete Array in the same order.
 The Array format reads metadata arguments written on the top-level
 example group, such as `describe MyClass, :prepare, type: :model`.
 It does not evaluate variables or method calls, or read metadata added
-by RSpec configuration. A key can still match a presence entry when
-its value is unknown, but cannot match a configured literal value.
+by RSpec configuration. Unknown values cannot match a scalar entry
+or a configured literal value. Bare tags mean `true` and override
+the corresponding Symbol key in the final metadata Hash.
 
 An Array replaces the default `IgnoreMetadata: {type=>routing}`.
 Include `{type=>routing}` in an Array to keep ignoring routing specs.
@@ -6407,7 +6410,7 @@ whatever_spec.rb         # describe MyClass, type: :routing do; end
 ----
 # good
 whatever_spec.rb         # describe MyClass, :prepare do; end
-whatever_spec.rb         # describe MyClass, prepare: false do; end
+whatever_spec.rb         # describe MyClass, prepare: true do; end
 whatever_spec.rb         # describe MyClass, type: :model do; end
 whatever_spec.rb         # describe MyClass, type: :routing do; end
 ----

@@ -31,7 +31,7 @@ RSpec.describe 'RuboCop::CLI run', :isolated_environment do # rubocop:disable RS
         describe MyClass, type: :routing do; end
       RUBY
       create_file('spec/prepare_spec.rb', <<~RUBY)
-        describe MyClass, prepare: false do; end
+        describe MyClass, prepare: true do; end
       RUBY
       create_file('spec/database_spec.rb', <<~RUBY)
         describe MyClass, resources: [:database, :network] do; end
@@ -52,6 +52,55 @@ RSpec.describe 'RuboCop::CLI run', :isolated_environment do # rubocop:disable RS
       expect([$stdout.string, $stderr.string]).to match(
         [a_string_including('1 file inspected, 1 offense detected'), '']
       )
+    end
+
+    it 'reports false and String-key tags instead of ignoring them' do
+      create_file('spec/false_spec.rb', <<~RUBY)
+        describe MyClass, prepare: false do; end
+      RUBY
+      create_file('spec/string_spec.rb', <<~RUBY)
+        describe MyClass, "prepare" => true do; end
+      RUBY
+
+      expect(exit_code).to eq(1)
+      expect($stdout.string).to include(
+        '2 files inspected, 2 offenses detected'
+      )
+    end
+
+    it 'rejects a multi-pair entry even after a matching tag entry' do
+      create_file('.rubocop.yml', <<~YAML)
+        AllCops:
+          NewCops: disable
+        RSpec/SpecFilePathFormat:
+          IgnoreMetadata:
+            - prepare
+            - type: model
+              enabled: true
+      YAML
+      create_file('spec/prepare_spec.rb', <<~RUBY)
+        describe MyClass, :prepare do; end
+      RUBY
+
+      expect(exit_code).to eq(2)
+      expect($stderr.string).to include(
+        'at most one key/value pair', 'Split multiple pairs'
+      )
+    end
+
+    it 'validates multi-pair entries even without an example group' do
+      create_file('.rubocop.yml', <<~YAML)
+        AllCops:
+          NewCops: disable
+        RSpec/SpecFilePathFormat:
+          IgnoreMetadata:
+            - type: job
+              inline: true
+      YAML
+      create_file('spec/empty_spec.rb', "# No example groups.\n")
+
+      expect(exit_code).to eq(2)
+      expect($stderr.string).to include('Split multiple pairs')
     end
 
     it 'replaces the default Hash rather than implicitly adding routing' do

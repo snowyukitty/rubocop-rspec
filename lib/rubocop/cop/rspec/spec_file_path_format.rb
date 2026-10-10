@@ -11,11 +11,13 @@ module RuboCop
       # The Hash format compares Symbol metadata values with String config
       # values, so `type: :routing` matches but `type: 'routing'` does not.
       #
-      # Use the Array format to ignore several values for the same key, or to
-      # ignore a key regardless of its value. For example, `[prepare,
-      # {type=>model}, {type=>routing}]` ignores groups with `:prepare`,
-      # `prepare: false`, `prepare: nil`, `type: :model` or `type: :routing`.
-      # Any matching entry or key/value pair is enough to ignore a group.
+      # Use the Array format to ignore several values for the same key, or
+      # boolean metadata tags. For example, `[prepare, {type=>model},
+      # {type=>routing}]` ignores groups with `:prepare`, `prepare: true`,
+      # `type: :model` or `type: :routing`. Any matching entry is enough.
+      # Each Hash entry must contain at most one key/value pair. Split
+      # multiple pairs into separate entries; they are alternatives, not
+      # combinations of metadata conditions.
       #
       # Configure this Array in YAML with separate entries:
       #
@@ -30,9 +32,9 @@ module RuboCop
       # duplicate YAML keys. Each `-` starts a new Array entry; the two `type`
       # keys belong to different Hashes, so neither replaces the other.
       #
-      # Array entries match both String and Symbol metadata keys by spelling.
-      # For example, `prepare` also matches `"prepare" => false`. When both
-      # key forms are present, their values remain separate alternatives.
+      # Array entries match only Symbol metadata keys. A scalar entry such
+      # as `prepare` matches a bare `:prepare` or literal `prepare: true`,
+      # but not `prepare: false`, `prepare: nil` or `"prepare" => true`.
       #
       # In the Array format, a configured value of `model` matches both
       # `type: :model` and `type: 'model'`. String and Symbol values compare by
@@ -42,8 +44,9 @@ module RuboCop
       # The Array format reads metadata arguments written on the top-level
       # example group, such as `describe MyClass, :prepare, type: :model`.
       # It does not evaluate variables or method calls, or read metadata added
-      # by RSpec configuration. A key can still match a presence entry when
-      # its value is unknown, but cannot match a configured literal value.
+      # by RSpec configuration. Unknown values cannot match a scalar entry
+      # or a configured literal value. Bare tags mean `true` and override
+      # the corresponding Symbol key in the final metadata Hash.
       #
       # An Array replaces the default `IgnoreMetadata: {type=>routing}`.
       # Include `{type=>routing}` in an Array to keep ignoring routing specs.
@@ -79,7 +82,7 @@ module RuboCop
       # @example `IgnoreMetadata: [prepare, {type=>model}, {type=>routing}]`
       #   # good
       #   whatever_spec.rb         # describe MyClass, :prepare do; end
-      #   whatever_spec.rb         # describe MyClass, prepare: false do; end
+      #   whatever_spec.rb         # describe MyClass, prepare: true do; end
       #   whatever_spec.rb         # describe MyClass, type: :model do; end
       #   whatever_spec.rb         # describe MyClass, type: :routing do; end
       #
@@ -114,6 +117,10 @@ module RuboCop
         # @!method metadata_key_value(node)
         def_node_search :metadata_key_value, '(pair (sym $_key) (sym $_value))'
 
+        def validate_config
+          MetadataFilter.new(ignore_metadata) if ignore_metadata.is_a?(Array)
+        end
+
         def on_top_level_example_group(node)
           return unless top_level_groups.one?
 
@@ -133,6 +140,12 @@ module RuboCop
           private_constant :UNKNOWN_METADATA, :STATIC_VALUES
 
           def initialize(entries)
+            if entries.any? { |entry| entry.is_a?(Hash) && entry.size > 1 }
+              raise ValidationError,
+                    'RSpec/SpecFilePathFormat IgnoreMetadata list entries ' \
+                    'must contain at most one key/value pair. Split multiple ' \
+                    'pairs into separate list entries.'
+            end
             @entries = entries
           end
 
@@ -149,13 +162,11 @@ module RuboCop
             case entry
             when Hash
               entry.any? do |key, value|
-                [key.to_s, key.to_s.to_sym].any? do |metadata_key|
-                  metadata.key?(metadata_key) &&
-                    metadata[metadata_key] == normalize_metadata_value(value)
-                end
+                metadata.key?(key.to_s.to_sym) &&
+                  metadata[key.to_s.to_sym] == normalize_metadata_value(value)
               end
             when String, Symbol
-              metadata.key?(entry.to_s) || metadata.key?(entry.to_sym)
+              metadata[entry.to_sym] == true
             else
               false
             end
@@ -173,7 +184,7 @@ module RuboCop
             return {} unless hash
 
             hash.children.each_with_object({}) do |node, metadata|
-              if node.pair_type? && node.key.type?(:sym, :str)
+              if node.pair_type? && node.key.sym_type?
                 key = node.key.value
                 metadata[key] = literal_metadata_value(node.value)
               elsif unknown_metadata_key?(node)
@@ -312,14 +323,10 @@ module RuboCop
 
           File.join(
             constants.filter_map do |name|
-              path = custom_transform.fetch(name) { camel_to_snake_case(name) }
+              path = custom_transform.fetch(name) { inflector.call(name) }
               path unless path.empty?
             end
           )
-        end
-
-        def camel_to_snake_case(string)
-          inflector.call(string)
         end
 
         def custom_transform

@@ -402,30 +402,13 @@ RSpec.describe RuboCop::Cop::RSpec::SpecFilePathFormat, :config do
     end
 
     it_behaves_like 'it skips ignored metadata', 'prepare', ':prepare'
-    it_behaves_like 'it skips ignored metadata', 'prepare', 'prepare: false'
-    it_behaves_like 'it skips ignored metadata', 'prepare', 'prepare: nil'
-    it_behaves_like 'it skips ignored metadata', 'prepare', '"prepare" => false'
-    it_behaves_like 'it skips ignored metadata', 'prepare', '"prepare" => nil'
+    it_behaves_like 'it skips ignored metadata', 'prepare', 'prepare: true'
     it_behaves_like 'it skips ignored metadata',
-                    'prepare', '"prepare" => dynamic_value'
-    it_behaves_like 'it skips ignored metadata',
-                    { 'type' => 'model' }, '"type" => :model'
-    it_behaves_like 'it skips ignored metadata',
-                    { 'type' => 'model' }, '"type" => "model"'
-    it_behaves_like 'it skips ignored metadata',
-                    { 'type' => 'model' }, '{"type" => :model, type: :request}'
+                    'prepare', ':prepare, prepare: false'
     it_behaves_like 'it skips ignored metadata',
                     { 'type' => 'model' }, '{type: :model, "type" => :request}'
     it_behaves_like 'it skips ignored metadata',
                     { 'enabled' => true }, ':enabled, "enabled" => false'
-    it_behaves_like 'it skips ignored metadata',
-                    { 'disabled' => false }, ':disabled, "disabled" => false'
-    it_behaves_like 'it skips ignored metadata',
-                    'prepare',
-                    'prepare: dynamic_value'
-    it_behaves_like 'it skips ignored metadata',
-                    'prepare',
-                    'prepare: false, **options'
     it_behaves_like 'it skips ignored metadata',
                     { 'type' => 'model' },
                     'type: :model'
@@ -478,6 +461,19 @@ RSpec.describe RuboCop::Cop::RSpec::SpecFilePathFormat, :config do
                     'nested: [[:database]]'
 
     it_behaves_like 'it checks other metadata', ':other'
+    it_behaves_like 'it checks other metadata', 'prepare: false'
+    it_behaves_like 'it checks other metadata', 'prepare: nil'
+    it_behaves_like 'it checks other metadata', 'prepare: dynamic_value'
+    it_behaves_like 'it checks other metadata', 'prepare: false, **options'
+    it_behaves_like 'it checks other metadata', '"prepare" => true'
+    it_behaves_like 'it checks other metadata', '"prepare" => false'
+    it_behaves_like 'it checks other metadata', '"prepare" => nil'
+    it_behaves_like 'it checks other metadata', '"prepare" => dynamic_value'
+    it_behaves_like 'it checks other metadata', '"type" => :model'
+    it_behaves_like 'it checks other metadata', '"type" => "model"'
+    it_behaves_like 'it checks other metadata',
+                    '{"type" => :model, type: :request}'
+    it_behaves_like 'it checks other metadata', ':disabled, "disabled" => false'
     it_behaves_like 'it checks other metadata', ':prepare, "description"'
     it_behaves_like 'it checks other metadata', '{type: :model}, "description"'
     it_behaves_like 'it checks other metadata', 'other: {type: :model}'
@@ -515,12 +511,28 @@ RSpec.describe RuboCop::Cop::RSpec::SpecFilePathFormat, :config do
 
   context 'when a list entry contains multiple metadata keys' do
     let(:cop_config) do
-      { 'IgnoreMetadata' => [{ 'type' => 'model', 'enabled' => true }] }
+      { 'IgnoreMetadata' => ['prepare',
+                             { 'type' => 'model', 'enabled' => true }] }
     end
 
-    it 'matches any pair, without requiring every key' do
+    it 'rejects the configuration with an actionable error' do
+      expect { cop.validate_config }.to raise_error(
+        RuboCop::ValidationError,
+        'RSpec/SpecFilePathFormat IgnoreMetadata list entries must ' \
+        'contain at most one key/value pair. Split multiple pairs ' \
+        'into separate list entries.'
+      )
+    end
+  end
+
+  context 'when the old Hash format contains multiple metadata keys' do
+    let(:cop_config) do
+      { 'IgnoreMetadata' => { 'type' => 'model', 'enabled' => 'yes' } }
+    end
+
+    it 'continues matching either pair' do
       expect_no_offenses(<<~RUBY, 'wrong_class_spec.rb')
-        describe MyClass, enabled: true do; end
+        describe MyClass, enabled: :yes do; end
       RUBY
     end
   end
@@ -534,7 +546,7 @@ RSpec.describe RuboCop::Cop::RSpec::SpecFilePathFormat, :config do
       RUBY
     end
 
-    it 'matches a Symbol presence entry' do
+    it 'matches a Symbol tag entry' do
       expect_no_offenses(<<~RUBY, 'wrong_class_spec.rb')
         describe MyClass, :prepare do; end
       RUBY
